@@ -1,6 +1,7 @@
 from typing import Mapping
 
 import pytest
+from aiohttp.hdrs import CONTENT_TYPE
 
 from gql import Client, gql
 from gql.transport.exceptions import (
@@ -396,6 +397,9 @@ async def test_requests_query_with_extensions(
 
 
 file_upload_server_answer = '{"data":{"success":true}}'
+file_upload_content_type_server_answer = (
+    '{"data":{"success":true, "content_type":"{}"}}'
+)
 
 file_upload_mutation_1 = """
     mutation($file: Upload!) {
@@ -444,13 +448,18 @@ async def test_requests_file_upload(event_loop, aiohttp_server, run_sync_test):
         assert field_2.name == "0"
         field_2_text = await field_2.text()
         assert field_2_text == file_1_content
+        field_2_content_type = field_2.headers.get(CONTENT_TYPE)
 
         field_3 = await reader.next()
         assert field_3 is None
 
-        return web.Response(
-            text=file_upload_server_answer, content_type="application/json"
-        )
+        response = file_upload_server_answer
+        if field_2_content_type:
+            response = file_upload_content_type_server_answer.replace(
+                "{}", field_2_content_type
+            )
+
+        return web.Response(text=response, content_type="application/json")
 
     app = web.Application()
     app.router.add_route("POST", "/", single_upload_handler)
@@ -467,6 +476,7 @@ async def test_requests_file_upload(event_loop, aiohttp_server, run_sync_test):
 
                 file_path = test_file.filename
 
+                # Provide file without content_type
                 with open(file_path, "rb") as f:
 
                     params = {"file": f, "other_var": 42}
@@ -475,6 +485,19 @@ async def test_requests_file_upload(event_loop, aiohttp_server, run_sync_test):
                     )
 
                     assert execution_result.data["success"]
+                    assert execution_result.data.get("content_type") is None
+
+                # Provide file _with_ content_type
+                with open(file_path, "rb") as f:
+
+                    f.content_type = "image/png"
+                    params = {"file": f, "other_var": 42}
+                    execution_result = session._execute(
+                        query, variable_values=params, upload_files=True
+                    )
+
+                    assert execution_result.data["success"]
+                    assert execution_result.data["content_type"] == f.content_type
 
     await run_sync_test(event_loop, server, test_code)
 
