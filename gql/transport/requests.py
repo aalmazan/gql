@@ -184,7 +184,8 @@ class RequestsHTTPTransport(Transport):
 
             # Add the extracted files as remaining fields
             for k, v in file_streams.items():
-                fields[k] = (getattr(v, "name", k), v)
+                mimetype = getattr(v, "content_type", None)
+                fields[k] = (getattr(v, "name", k), v, mimetype)
 
             # Prepare requests http to send multipart-encoded data
             data = MultipartEncoder(fields=fields)
